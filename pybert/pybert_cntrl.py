@@ -135,6 +135,7 @@ def my_run_simulation(self, initial_run=False, update_plots=True):
     rn = self.rn
     pn_mag = self.pn_mag
     pn_freq = self.pn_freq * 1.0e6
+    prbs_len = self.prbs_len
     pattern_len = self.pattern_len
     rx_bw = self.rx_bw * 1.0e9
     peak_freq = self.peak_freq * 1.0e9

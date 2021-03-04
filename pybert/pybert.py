@@ -32,6 +32,7 @@ from numpy.fft import fft, ifft
 from numpy.random import randint
 from os.path import dirname, join
 from scipy.optimize import minimize, minimize_scalar
+from scipy.signal import max_len_seq
 from traits.api import (
     HTML,
     Array,
@@ -86,7 +87,7 @@ gMaxCTLEFreq = 20.0  # max. allowed CTLE peak frequency (GHz) (when optimizing, 
 # - Simulation Control
 gBitRate = 10  # (Gbps)
 gNbits = 8000  # number of bits to run
-gPatLen = 127  # repeating bit pattern length
+gPrbsLen = 7  # repeating bit prbs register length
 gNspb = 32  # samples per bit
 gNumAve = 1  # Number of bit error samples to average, when sweeping.
 # - Channel Control
@@ -369,7 +370,7 @@ class PyBERT(HasTraits):
     # - Simulation Control
     bit_rate = Range(low=0.1, high=120.0, value=gBitRate)     #: (Gbps)
     nbits = Range(low=1000, high=10000000, value=gNbits)      #: Number of bits to simulate.
-    pattern_len = Range(low=7, high=10000000, value=gPatLen)  #: PRBS pattern length.
+    prbs_len = Range(low=3, high=31, value=gPrbsLen)  #: PRBS pattern length.
     nspb = Range(low=2, high=256, value=gNspb)                #: Signal vector samples per bit.
     eye_bits = Int(gNbits // 5)  #: # of bits used to form eye. (Default = last 20%)
     mod_type = List([0])         #: 0 = NRZ; 1 = Duo-binary; 2 = PAM-4
@@ -563,7 +564,7 @@ class PyBERT(HasTraits):
     t_ns = Property(Array, depends_on=["t"])
     f = Property(Array, depends_on=["t"])
     w = Property(Array, depends_on=["f"])
-    bits = Property(Array, depends_on=["pattern_len", "nbits", "run_count"])
+    bits = Property(Array, depends_on=["prbs_len", "nbits", "run_count"])
     symbols = Property(Array, depends_on=["bits", "mod_type", "vod"])
     ffe = Property(Array, depends_on=["tx_taps.value", "tx_taps.enabled"])
     ui = Property(Float, depends_on=["bit_rate", "mod_type"])
@@ -635,6 +636,10 @@ class PyBERT(HasTraits):
             make_plots(self, n_dfe_taps=gNtaps)
         else:
             self.calc_chnl_h()  # Prevents missing attribute error in _get_ctle_out_h_tune().
+
+    @property
+    def pattern_len(self):
+        return (1 << self.prbs_len) - 1
 
     # Custom button handlers
     def _btn_rst_eq_fired(self):
@@ -797,17 +802,8 @@ class PyBERT(HasTraits):
         Generate the bit stream.
         """
 
-        pattern_len = self.pattern_len
-        nbits = self.nbits
-        mod_type = self.mod_type[0]
-
-        bits = []
-        seed = randint(128)
-        while not seed:  # We don't want to seed our LFSR with zero.
-            seed = randint(128)
-        bit_gen = lfsr_bits([7, 6], seed)
-        for _ in range(pattern_len - 4):
-            bits.append(next(bit_gen))
+        seed = [int(e) for e in np.binary_repr(randint(1, self.pattern_len + 1), width=self.prbs_len)]
+        bits = max_len_seq(nbits=self.prbs_len, state=seed)[0]
 
         # The 4-bit prequels, below, are to ensure that the first zero crossing
         # in the actual slicer input signal occurs. This is necessary, because
@@ -817,9 +813,13 @@ class PyBERT(HasTraits):
         # We may want to talk to Mike Steinberger, of SiSoft, about his
         # correlation based approach to this alignment chore. It's
         # probably more robust.
-        if mod_type == 1:  # Duo-binary precodes, using XOR.
-            return resize(array([0, 0, 1, 0] + bits), nbits)
-        return resize(array([0, 0, 1, 1] + bits), nbits)
+        start_pattern = [0,0,1,0] if self.mod_type[0] == 1 else [0,0,1,1]
+        for i in range(self.pattern_len - 4):
+            if np.allclose(bits[i:i+4], start_pattern):
+                bits = np.roll(bits, -i)
+                break
+        
+        return resize(bits, self.nbits)
 
     @cached_property
     def _get_ui(self):

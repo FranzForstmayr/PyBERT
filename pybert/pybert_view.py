@@ -253,9 +253,9 @@ traits_view = View(
                                 enabled_when="do_sweep == True",
                             ),
                             Item(
-                                name="pattern_len",
-                                label="PatLen",
-                                tooltip="length of random pattern to use to construct bit stream",
+                                name="prbs_len",
+                                label="PrbsLen",
+                                tooltip="length linear feedback shift register to use to construct bit stream",
                                 editor=TextEditor(auto_set=False, enter_set=True, evaluate=int),
                             ),
                             Item(
